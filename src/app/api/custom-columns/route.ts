@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
 import { queryAll, run } from '@/lib/db';
+import { getAuthUser } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const columns = await queryAll('SELECT * FROM custom_columns ORDER BY column_name ASC');
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
+    }
+
+    const columns = await queryAll(
+      'SELECT * FROM custom_columns WHERE user_id = ? ORDER BY column_name ASC',
+      [user.userId]
+    );
     return NextResponse.json(columns);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -12,6 +21,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
+    }
+
     const { column_name, column_type, applies_to } = await request.json();
     if (!column_name || !column_type || !applies_to) {
       return NextResponse.json(
@@ -29,8 +43,8 @@ export async function POST(request: Request) {
     }
 
     const result = await run(
-      'INSERT INTO custom_columns (column_name, column_type, applies_to) VALUES (?, ?, ?)',
-      [column_name, column_type, applies_to]
+      'INSERT INTO custom_columns (column_name, column_type, applies_to, user_id) VALUES (?, ?, ?, ?)',
+      [column_name, column_type, applies_to, user.userId]
     );
 
     return NextResponse.json({
@@ -40,18 +54,17 @@ export async function POST(request: Request) {
       applies_to
     });
   } catch (error: any) {
-    if (error.message?.includes('UNIQUE constraint failed')) {
-      return NextResponse.json(
-        { error: 'A custom column with this name and scope already exists' },
-        { status: 400 }
-      );
-    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
   try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const idStr = searchParams.get('id');
     if (!idStr) {
@@ -59,7 +72,7 @@ export async function DELETE(request: Request) {
     }
     const id = parseInt(idStr, 10);
 
-    const result = await run('DELETE FROM custom_columns WHERE id = ?', [id]);
+    const result = await run('DELETE FROM custom_columns WHERE id = ? AND user_id = ?', [id, user.userId]);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Custom column not found' }, { status: 404 });

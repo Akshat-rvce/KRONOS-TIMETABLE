@@ -40,13 +40,12 @@ function getLocalDb() {
 }
 
 /**
- * Execute raw SQL script (multiple statements or DDL)
+ * Execute raw SQL script
  */
 export async function exec(sql: string): Promise<void> {
   await ensureDb();
   if (isTursoConfigured()) {
     const client = getTursoClient();
-    // In libsql, multiple statements can be run with client.batch or sequential executes
     const statements = sql
       .split(';')
       .map(s => s.trim())
@@ -118,21 +117,53 @@ export async function run(sql: string, params: any[] = []): Promise<RunResult> {
 }
 
 /**
+ * Seed default subjects for a newly registered user
+ */
+export async function seedDefaultSubjects(userId: number): Promise<void> {
+  const defaultSubjects = [
+    { name: 'Digital Electronics (Morris Mano)', color: '#3b82f6', daily_target_hours: 2.0 },
+    { name: 'Circuit Theory (Hayt)',             color: '#ec4899', daily_target_hours: 2.0 },
+    { name: 'NPTEL System Verilog',              color: '#10b981', daily_target_hours: 1.5 },
+    { name: 'Coding (C++ / DSA)',                color: '#8b5cf6', daily_target_hours: 2.0 },
+    { name: 'Principles of Electrical Engineering', color: '#f59e0b', daily_target_hours: 1.5 },
+  ];
+  for (const sub of defaultSubjects) {
+    const sql = 'INSERT INTO subjects (name, color, daily_target_hours, user_id) VALUES (?, ?, ?, ?)';
+    if (isTursoConfigured()) {
+      await getTursoClient().execute({ sql, args: [sub.name, sub.color, sub.daily_target_hours, userId] });
+    } else {
+      getLocalDb().prepare(sql).run(sub.name, sub.color, sub.daily_target_hours, userId);
+    }
+  }
+  console.log(`[KRONOS] Seeded default subjects for user ${userId}`);
+}
+
+/**
  * Initialize database tables and migrations (self-healing, runs once)
  */
 async function performInit(): Promise<void> {
-  // Table creation statements
   const tables = [
+    // Users table for multi-account authentication
+    `CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      avatar_url TEXT DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
     `CREATE TABLE IF NOT EXISTS subjects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
       color TEXT NOT NULL,
       icon TEXT DEFAULT NULL,
       is_archived INTEGER DEFAULT 0,
       daily_target_hours REAL DEFAULT 2.0,
       weekly_target_hours REAL DEFAULT NULL,
       study_days_per_week INTEGER DEFAULT 5,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      user_id INTEGER DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
     `CREATE TABLE IF NOT EXISTS daily_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,18 +178,20 @@ async function performInit(): Promise<void> {
       status TEXT NOT NULL CHECK (status IN ('not_started', 'in_progress', 'completed', 'skipped')),
       focus_rating INTEGER,
       interruptions INTEGER DEFAULT 0,
+      user_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
-      UNIQUE(date, subject_id)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
     `CREATE TABLE IF NOT EXISTS custom_columns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       column_name TEXT NOT NULL,
       column_type TEXT NOT NULL CHECK (column_type IN ('text', 'number', 'boolean', 'date')),
       applies_to TEXT NOT NULL CHECK (applies_to IN ('subjects', 'daily_entries')),
+      user_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(column_name, applies_to)
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )`,
     `CREATE TABLE IF NOT EXISTS custom_column_values (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,11 +212,14 @@ async function performInit(): Promise<void> {
     }
   }
 
-  // Column migrations
+  // Column migrations (multi-user upgrades)
   const migrations = [
     `ALTER TABLE subjects ADD COLUMN daily_target_hours REAL DEFAULT 2.0`,
     `ALTER TABLE subjects ADD COLUMN weekly_target_hours REAL DEFAULT NULL`,
     `ALTER TABLE subjects ADD COLUMN study_days_per_week INTEGER DEFAULT 5`,
+    `ALTER TABLE subjects ADD COLUMN user_id INTEGER DEFAULT NULL`,
+    `ALTER TABLE daily_entries ADD COLUMN user_id INTEGER DEFAULT NULL`,
+    `ALTER TABLE custom_columns ADD COLUMN user_id INTEGER DEFAULT NULL`,
   ];
   for (const sql of migrations) {
     try {
@@ -195,35 +231,6 @@ async function performInit(): Promise<void> {
     } catch {
       // Column already exists
     }
-  }
-
-  // Seed default subjects if empty
-  let count = 0;
-  if (isTursoConfigured()) {
-    const res = await getTursoClient().execute('SELECT count(*) as count FROM subjects');
-    count = Number(res.rows[0]?.count ?? 0);
-  } else {
-    const res = getLocalDb().prepare('SELECT count(*) as count FROM subjects').get() as { count: number };
-    count = res?.count ?? 0;
-  }
-
-  if (count === 0) {
-    const defaultSubjects = [
-      { name: 'Digital Electronics (Morris Mano)', color: '#3b82f6', daily_target_hours: 2.0 },
-      { name: 'Circuit Theory (Hayt)',             color: '#ec4899', daily_target_hours: 2.0 },
-      { name: 'NPTEL System Verilog',              color: '#10b981', daily_target_hours: 1.5 },
-      { name: 'Coding (C++ / DSA)',                color: '#8b5cf6', daily_target_hours: 2.0 },
-      { name: 'Principles of Electrical Engineering', color: '#f59e0b', daily_target_hours: 1.5 },
-    ];
-    for (const sub of defaultSubjects) {
-      const sql = 'INSERT INTO subjects (name, color, daily_target_hours) VALUES (?, ?, ?)';
-      if (isTursoConfigured()) {
-        await getTursoClient().execute({ sql, args: [sub.name, sub.color, sub.daily_target_hours] });
-      } else {
-        getLocalDb().prepare(sql).run(sub.name, sub.color, sub.daily_target_hours);
-      }
-    }
-    console.log('[KRONOS] Seeded default subjects successfully');
   }
 }
 

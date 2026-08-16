@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { queryAll, queryOne, run } from '@/lib/db';
+import { getAuthUser } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date');
     const startDate = searchParams.get('start_date');
@@ -14,8 +20,8 @@ export async function GET(request: Request) {
       FROM daily_entries de 
       JOIN subjects s ON de.subject_id = s.id
     `;
-    const params: any[] = [];
-    const filters: string[] = [];
+    const params: any[] = [user.userId];
+    const filters: string[] = ['de.user_id = ?'];
 
     if (dateParam) {
       filters.push('de.date = ?');
@@ -40,13 +46,13 @@ export async function GET(request: Request) {
 
     const entries = await queryAll(sql, params);
 
-    // Fetch custom column values
+    // Fetch custom column values for this user
     const customValues = await queryAll(`
       SELECT cv.entity_id, c.column_name, cv.value 
       FROM custom_column_values cv 
       JOIN custom_columns c ON cv.custom_column_id = c.id 
-      WHERE c.applies_to = 'daily_entries'
-    `);
+      WHERE c.applies_to = 'daily_entries' AND c.user_id = ?
+    `, [user.userId]);
 
     // Merge custom values
     const entriesMap = new Map(entries.map(e => [e.id, { ...e, custom_fields: {} }]));
@@ -65,6 +71,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
+    }
+
     const body = await request.json();
     const {
       date,
@@ -90,10 +101,10 @@ export async function POST(request: Request) {
 
     let entryId: number;
 
-    // Check if entry already exists
+    // Check if entry already exists for this user
     const existing = await queryOne<{ id: number }>(
-      'SELECT id FROM daily_entries WHERE date = ? AND subject_id = ?',
-      [date, subject_id]
+      'SELECT id FROM daily_entries WHERE date = ? AND subject_id = ? AND user_id = ?',
+      [date, subject_id, user.userId]
     );
 
     if (existing) {
@@ -110,7 +121,7 @@ export async function POST(request: Request) {
           focus_rating = ?,
           interruptions = ?,
           updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
       `, [
         target_hours ?? 0,
         hours_completed ?? 0,
@@ -121,14 +132,15 @@ export async function POST(request: Request) {
         status,
         focus_rating !== undefined ? focus_rating : null,
         interruptions ?? 0,
-        entryId
+        entryId,
+        user.userId
       ]);
     } else {
       const result = await run(`
         INSERT INTO daily_entries (
           date, subject_id, target_hours, hours_completed, start_time, end_time,
-          topics_covered, notes, status, focus_rating, interruptions
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          topics_covered, notes, status, focus_rating, interruptions, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         date,
         subject_id,
@@ -140,7 +152,8 @@ export async function POST(request: Request) {
         notes || null,
         status,
         focus_rating !== undefined ? focus_rating : null,
-        interruptions ?? 0
+        interruptions ?? 0,
+        user.userId
       ]);
       entryId = result.lastInsertRowid;
     }
@@ -148,7 +161,8 @@ export async function POST(request: Request) {
     // Save custom column values
     if (custom_fields && typeof custom_fields === 'object') {
       const columns = await queryAll<{ id: number; column_name: string }>(
-        "SELECT id, column_name FROM custom_columns WHERE applies_to = 'daily_entries'"
+        "SELECT id, column_name FROM custom_columns WHERE applies_to = 'daily_entries' AND user_id = ?",
+        [user.userId]
       );
 
       for (const col of columns) {
@@ -169,8 +183,8 @@ export async function POST(request: Request) {
       SELECT de.*, s.name as subject_name, s.color as subject_color 
       FROM daily_entries de 
       JOIN subjects s ON de.subject_id = s.id
-      WHERE de.id = ?
-    `, [entryId]);
+      WHERE de.id = ? AND de.user_id = ?
+    `, [entryId, user.userId]);
 
     if (!finalEntry) {
       return NextResponse.json({ error: 'Failed to retrieve saved entry' }, { status: 500 });
@@ -181,8 +195,8 @@ export async function POST(request: Request) {
       SELECT c.column_name, cv.value 
       FROM custom_column_values cv 
       JOIN custom_columns c ON cv.custom_column_id = c.id 
-      WHERE cv.entity_id = ? AND c.applies_to = 'daily_entries'
-    `, [entryId]);
+      WHERE cv.entity_id = ? AND c.applies_to = 'daily_entries' AND c.user_id = ?
+    `, [entryId, user.userId]);
 
     finalEntry.custom_fields = {};
     for (const cv of finalCustomValues) {
@@ -197,6 +211,11 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const idStr = searchParams.get('id');
     if (!idStr) {
@@ -204,7 +223,7 @@ export async function DELETE(request: Request) {
     }
     const id = parseInt(idStr, 10);
 
-    const result = await run('DELETE FROM daily_entries WHERE id = ?', [id]);
+    const result = await run('DELETE FROM daily_entries WHERE id = ? AND user_id = ?', [id, user.userId]);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
