@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { queryAll, queryOne, run } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
@@ -38,20 +38,20 @@ export async function GET(request: Request) {
 
     sql += ' ORDER BY de.date DESC, de.created_at DESC';
 
-    const entries = db.prepare(sql).all(...params) as any[];
+    const entries = await queryAll(sql, params);
 
     // Fetch custom column values
-    const customValues = db.prepare(`
+    const customValues = await queryAll(`
       SELECT cv.entity_id, c.column_name, cv.value 
       FROM custom_column_values cv 
       JOIN custom_columns c ON cv.custom_column_id = c.id 
       WHERE c.applies_to = 'daily_entries'
-    `).all() as any[];
+    `);
 
     // Merge custom values
     const entriesMap = new Map(entries.map(e => [e.id, { ...e, custom_fields: {} }]));
     for (const cv of customValues) {
-      const entry = entriesMap.get(cv.entity_id);
+      const entry: any = entriesMap.get(cv.entity_id);
       if (entry) {
         entry.custom_fields[cv.column_name] = cv.value;
       }
@@ -91,13 +91,14 @@ export async function POST(request: Request) {
     let entryId: number;
 
     // Check if entry already exists
-    const existing = db
-      .prepare('SELECT id FROM daily_entries WHERE date = ? AND subject_id = ?')
-      .get(date, subject_id) as { id: number } | undefined;
+    const existing = await queryOne<{ id: number }>(
+      'SELECT id FROM daily_entries WHERE date = ? AND subject_id = ?',
+      [date, subject_id]
+    );
 
     if (existing) {
       entryId = existing.id;
-      db.prepare(`
+      await run(`
         UPDATE daily_entries SET
           target_hours = ?,
           hours_completed = ?,
@@ -110,7 +111,7 @@ export async function POST(request: Request) {
           interruptions = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(
+      `, [
         target_hours ?? 0,
         hours_completed ?? 0,
         start_time || null,
@@ -121,14 +122,14 @@ export async function POST(request: Request) {
         focus_rating !== undefined ? focus_rating : null,
         interruptions ?? 0,
         entryId
-      );
+      ]);
     } else {
-      const result = db.prepare(`
+      const result = await run(`
         INSERT INTO daily_entries (
           date, subject_id, target_hours, hours_completed, start_time, end_time,
           topics_covered, notes, status, focus_rating, interruptions
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `, [
         date,
         subject_id,
         target_hours ?? 0,
@@ -140,46 +141,48 @@ export async function POST(request: Request) {
         status,
         focus_rating !== undefined ? focus_rating : null,
         interruptions ?? 0
-      );
-      entryId = result.lastInsertRowid as number;
+      ]);
+      entryId = result.lastInsertRowid;
     }
 
     // Save custom column values
     if (custom_fields && typeof custom_fields === 'object') {
-      const columns = db
-        .prepare("SELECT id, column_name FROM custom_columns WHERE applies_to = 'daily_entries'")
-        .all() as { id: number; column_name: string }[];
-
-      const upsertValue = db.prepare(`
-        INSERT INTO custom_column_values (custom_column_id, entity_id, value)
-        VALUES (?, ?, ?)
-        ON CONFLICT(custom_column_id, entity_id) DO UPDATE SET value = excluded.value
-      `);
+      const columns = await queryAll<{ id: number; column_name: string }>(
+        "SELECT id, column_name FROM custom_columns WHERE applies_to = 'daily_entries'"
+      );
 
       for (const col of columns) {
         const val = custom_fields[col.column_name];
         if (val !== undefined) {
           const strVal = val === null || val === '' ? null : String(val);
-          upsertValue.run(col.id, entryId, strVal);
+          await run(`
+            INSERT INTO custom_column_values (custom_column_id, entity_id, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(custom_column_id, entity_id) DO UPDATE SET value = excluded.value
+          `, [col.id, entryId, strVal]);
         }
       }
     }
 
     // Return the updated entry joined with subject details
-    const finalEntry = db.prepare(`
+    const finalEntry: any = await queryOne(`
       SELECT de.*, s.name as subject_name, s.color as subject_color 
       FROM daily_entries de 
       JOIN subjects s ON de.subject_id = s.id
       WHERE de.id = ?
-    `).get(entryId) as any;
+    `, [entryId]);
+
+    if (!finalEntry) {
+      return NextResponse.json({ error: 'Failed to retrieve saved entry' }, { status: 500 });
+    }
 
     // Fetch custom values for this entry
-    const finalCustomValues = db.prepare(`
+    const finalCustomValues = await queryAll(`
       SELECT c.column_name, cv.value 
       FROM custom_column_values cv 
       JOIN custom_columns c ON cv.custom_column_id = c.id 
       WHERE cv.entity_id = ? AND c.applies_to = 'daily_entries'
-    `).all() as any[];
+    `, [entryId]);
 
     finalEntry.custom_fields = {};
     for (const cv of finalCustomValues) {
@@ -201,8 +204,7 @@ export async function DELETE(request: Request) {
     }
     const id = parseInt(idStr, 10);
 
-    const remove = db.prepare('DELETE FROM daily_entries WHERE id = ?');
-    const result = remove.run(id);
+    const result = await run('DELETE FROM daily_entries WHERE id = ?', [id]);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });

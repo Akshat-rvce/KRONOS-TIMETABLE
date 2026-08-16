@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { queryAll, run } from '@/lib/db';
 
 export async function GET() {
   try {
-    const subjects = db.prepare('SELECT * FROM subjects ORDER BY is_archived ASC, name ASC').all();
+    const subjects = await queryAll('SELECT * FROM subjects ORDER BY is_archived ASC, name ASC');
     return NextResponse.json(subjects);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -17,16 +17,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Name and color are required' }, { status: 400 });
     }
 
-    const insert = db.prepare(
-      'INSERT INTO subjects (name, color, icon, daily_target_hours, weekly_target_hours, study_days_per_week) VALUES (?, ?, ?, ?, ?, ?)'
-    );
-    const result = insert.run(
-      name,
-      color,
-      icon || null,
-      daily_target_hours ?? 2.0,
-      weekly_target_hours ?? null,
-      study_days_per_week ?? 5
+    const result = await run(
+      'INSERT INTO subjects (name, color, icon, daily_target_hours, weekly_target_hours, study_days_per_week) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        name,
+        color,
+        icon || null,
+        daily_target_hours ?? 2.0,
+        weekly_target_hours ?? null,
+        study_days_per_week ?? 5
+      ]
     );
 
     return NextResponse.json({
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       study_days_per_week: study_days_per_week ?? 5,
     });
   } catch (error: any) {
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message?.includes('UNIQUE constraint failed')) {
       return NextResponse.json({ error: 'Subject with this name already exists' }, { status: 400 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -54,18 +54,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'ID, name, and color are required' }, { status: 400 });
     }
 
-    const update = db.prepare(
-      'UPDATE subjects SET name = ?, color = ?, icon = ?, is_archived = ?, daily_target_hours = ?, weekly_target_hours = ?, study_days_per_week = ? WHERE id = ?'
-    );
-    const result = update.run(
-      name,
-      color,
-      icon || null,
-      is_archived ? 1 : 0,
-      daily_target_hours ?? 2.0,
-      weekly_target_hours ?? null,
-      study_days_per_week ?? 5,
-      id
+    const result = await run(
+      'UPDATE subjects SET name = ?, color = ?, icon = ?, is_archived = ?, daily_target_hours = ?, weekly_target_hours = ?, study_days_per_week = ? WHERE id = ?',
+      [
+        name,
+        color,
+        icon || null,
+        is_archived ? 1 : 0,
+        daily_target_hours ?? 2.0,
+        weekly_target_hours ?? null,
+        study_days_per_week ?? 5,
+        id
+      ]
     );
 
     if (result.changes === 0) {
@@ -87,8 +87,7 @@ export async function DELETE(request: Request) {
     }
     const id = parseInt(idStr, 10);
 
-    const remove = db.prepare('DELETE FROM subjects WHERE id = ?');
-    const result = remove.run(id);
+    const result = await run('DELETE FROM subjects WHERE id = ?', [id]);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Subject not found' }, { status: 404 });

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { queryAll, run } from '@/lib/db';
 
 export async function GET() {
   try {
-    const columns = db.prepare('SELECT * FROM custom_columns ORDER BY column_name ASC').all();
+    const columns = await queryAll('SELECT * FROM custom_columns ORDER BY column_name ASC');
     return NextResponse.json(columns);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -28,10 +28,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid applies_to value' }, { status: 400 });
     }
 
-    const insert = db.prepare(
-      'INSERT INTO custom_columns (column_name, column_type, applies_to) VALUES (?, ?, ?)'
+    const result = await run(
+      'INSERT INTO custom_columns (column_name, column_type, applies_to) VALUES (?, ?, ?)',
+      [column_name, column_type, applies_to]
     );
-    const result = insert.run(column_name, column_type, applies_to);
 
     return NextResponse.json({
       id: result.lastInsertRowid,
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       applies_to
     });
   } catch (error: any) {
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message?.includes('UNIQUE constraint failed')) {
       return NextResponse.json(
         { error: 'A custom column with this name and scope already exists' },
         { status: 400 }
@@ -59,8 +59,7 @@ export async function DELETE(request: Request) {
     }
     const id = parseInt(idStr, 10);
 
-    const remove = db.prepare('DELETE FROM custom_columns WHERE id = ?');
-    const result = remove.run(id);
+    const result = await run('DELETE FROM custom_columns WHERE id = ?', [id]);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Custom column not found' }, { status: 404 });
