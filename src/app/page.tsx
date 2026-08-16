@@ -44,14 +44,14 @@ function PomodoroWidget() {
   const [running, setRunning] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
   const [cycles, setCycles] = useState(0);
-  const ivRef = useRef<NodeJS.Timeout>();
+  const ivRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (running) {
       ivRef.current = setInterval(() => {
         setTimeLeft(t => {
           if (t <= 1) {
-            clearInterval(ivRef.current);
+            if (ivRef.current) clearInterval(ivRef.current);
             setRunning(false);
             if (!isBreak) { setCycles(c => c + 1); setIsBreak(true); setTimeLeft(POMO_BREAK); }
             else { setIsBreak(false); setTimeLeft(POMO_WORK); }
@@ -61,9 +61,11 @@ function PomodoroWidget() {
         });
       }, 1000);
     } else {
-      clearInterval(ivRef.current);
+      if (ivRef.current) clearInterval(ivRef.current);
     }
-    return () => clearInterval(ivRef.current);
+    return () => {
+      if (ivRef.current) clearInterval(ivRef.current);
+    };
   }, [running, isBreak]);
 
   const reset = () => { setRunning(false); setTimeLeft(isBreak ? POMO_BREAK : POMO_WORK); };
