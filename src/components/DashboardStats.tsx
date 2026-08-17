@@ -1,5 +1,5 @@
-import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
+import { toLocalISODate } from '@/lib/dateUtils';
 
 import React, { useEffect, useState } from 'react';
 import { Flame, Clock, TrendingUp, Award, Star } from 'lucide-react';
