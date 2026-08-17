@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -332,7 +333,7 @@ export default function SubjectsPage() {
       const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), subjects: s, entries: e, customColumns: c }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `kronos_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.href = url; a.download = `kronos_backup_${toLocalISODate(new Date())}.json`;
       a.click(); URL.revokeObjectURL(url);
       toast('JSON backup downloaded!');
     } catch { toast('Export failed'); }
@@ -352,7 +353,7 @@ export default function SubjectsPage() {
       const blob = new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `kronos_logs_${new Date().toISOString().split('T')[0]}.csv`;
+      a.href = url; a.download = `kronos_logs_${toLocalISODate(new Date())}.csv`;
       a.click(); URL.revokeObjectURL(url);
       toast('CSV study logs downloaded!');
     } catch { toast('Export failed'); }

@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -129,7 +130,7 @@ function PomodoroWidget() {
 
 // ─── Today's Checklist Widget ─────────────────────────────────
 function TodayChecklist({ entries, subjects }: { entries: DailyEntry[]; subjects: Subject[] }) {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = toLocalISODate(new Date());
   const todayEntries = useMemo(() => entries.filter(e => e.date === todayStr), [entries, todayStr]);
 
   const list = useMemo(() => subjects
@@ -254,7 +255,7 @@ export default function Dashboard() {
   const last5Days = useMemo(() => {
     return Array.from({ length: 5 }, (_, i) => {
       const d = new Date(); d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = toLocalISODate(d);
       const dateEntries = entries.filter(e => e.date === dateStr);
       const totalHours  = dateEntries.reduce((s, e) => s + e.hours_completed, 0);
       const targetHours = dateEntries.reduce((s, e) => s + e.target_hours, 0);
@@ -271,7 +272,7 @@ export default function Dashboard() {
   const trendData = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(); d.setDate(d.getDate() - (6 - i));
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = toLocalISODate(d);
       const de = entries.filter(e => e.date === dateStr);
       return {
         date: d.toLocaleDateString([], { month: 'short', day: 'numeric' }),
@@ -288,12 +289,12 @@ export default function Dashboard() {
       if (e.status !== 'skipped' && e.hours_completed > 0)
         dailyStudy[e.date] = (dailyStudy[e.date] || 0) + e.hours_completed;
     }
-    const todayStr = new Date().toISOString().split('T')[0];
-    const yStr = (() => { const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().split('T')[0]; })();
+    const todayStr = toLocalISODate(new Date());
+    const yStr = (() => { const d = new Date(); d.setDate(d.getDate()-1); return toLocalISODate(d); })();
     if (!dailyStudy[todayStr] && !dailyStudy[yStr]) return 0;
     let check = dailyStudy[todayStr] ? new Date() : new Date(yStr + 'T00:00:00');
     let s = 0;
-    while (dailyStudy[check.toISOString().split('T')[0]] > 0) {
+    while (dailyStudy[toLocalISODate(check)] > 0) {
       s++; check.setDate(check.getDate() - 1);
     }
     return s;

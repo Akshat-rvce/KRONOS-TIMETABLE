@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useEffect, useState } from 'react';
@@ -48,14 +49,14 @@ function calculateStats(entries: DailyEntry[]) {
   const targetPct   = totalTarget > 0 ? Math.min(100, Math.round((totalHours / totalTarget) * 100)) : 0;
 
   // Today
-  const todayStr    = new Date().toISOString().split('T')[0];
+  const todayStr    = toLocalISODate(new Date());
   const todayHours  = active.filter(e => e.date === todayStr).reduce((s, e) => s + e.hours_completed, 0);
   const todayTarget = active.filter(e => e.date === todayStr).reduce((s, e) => s + e.target_hours, 0);
 
   // Weekly (last 7 days)
   const weekDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - i);
-    return d.toISOString().split('T')[0];
+    return toLocalISODate(d);
   });
   const weekHours  = active.filter(e => weekDates.includes(e.date)).reduce((s, e) => s + e.hours_completed, 0);
   const weekTarget = active.filter(e => weekDates.includes(e.date)).reduce((s, e) => s + e.target_hours, 0);
@@ -68,10 +69,10 @@ function calculateStats(entries: DailyEntry[]) {
   }
   let streak = 0;
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  const yStr = yesterday.toISOString().split('T')[0];
+  const yStr = toLocalISODate(yesterday);
   if (dailyStudy[todayStr] > 0 || dailyStudy[yStr] > 0) {
     let check = dailyStudy[todayStr] > 0 ? new Date() : yesterday;
-    while (dailyStudy[check.toISOString().split('T')[0]] > 0) {
+    while (dailyStudy[toLocalISODate(check)] > 0) {
       streak++;
       check.setDate(check.getDate() - 1);
     }

@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 import { computeAdvancedAnalytics } from './analyticsEngine';
 import { DailyEntry, Subject } from './types';
 
@@ -27,7 +28,7 @@ export function generateInsights(entries: DailyEntry[], subjects: Subject[]) {
   const activeEntriesLast7Days = entries.filter(e => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    return e.date >= cutoff.toISOString().split('T')[0] && e.status !== 'skipped' && e.hours_completed > 0;
+    return e.date >= toLocalISODate(cutoff) && e.status !== 'skipped' && e.hours_completed > 0;
   });
 
   const totalHoursLast7Days = activeEntriesLast7Days.reduce((sum, e) => sum + e.hours_completed, 0);

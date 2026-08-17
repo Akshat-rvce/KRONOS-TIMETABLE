@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -23,7 +24,7 @@ export const LogEntryForm: React.FC<Props> = ({ isOpen, onClose, onSaveSuccess, 
   const [showTimeSection, setShowTimeSection] = useState(false);
 
   // Form fields
-  const [date, setDate]                 = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate]                 = useState(toLocalISODate(new Date()));
   const [subjectId, setSubjectId]       = useState<number | ''>('');
   const [hoursCompleted, setHoursCompleted] = useState('');
   const [startTime, setStartTime]       = useState('');
@@ -54,7 +55,7 @@ export const LogEntryForm: React.FC<Props> = ({ isOpen, onClose, onSaveSuccess, 
     if (!isOpen) return;
     fetchSubjects();
     if (initialEntry) {
-      setDate(initialEntry.date || new Date().toISOString().split('T')[0]);
+      setDate(initialEntry.date || toLocalISODate(new Date()));
       setSubjectId(initialEntry.subject_id || '');
       setHoursCompleted(initialEntry.hours_completed != null ? String(initialEntry.hours_completed) : '');
       setStartTime(initialEntry.start_time || '');
@@ -82,7 +83,7 @@ export const LogEntryForm: React.FC<Props> = ({ isOpen, onClose, onSaveSuccess, 
   }, [isOpen, subjectId, hoursCompleted, skipped]);
 
   const resetForm = () => {
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(toLocalISODate(new Date()));
     setSubjectId('');
     setHoursCompleted('');
     setStartTime('');

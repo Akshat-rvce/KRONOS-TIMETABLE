@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -55,7 +56,7 @@ export default function CalendarPage() {
   const goToToday = () => {
     const today = new Date();
     setCurrentDate(today);
-    setSelectedDateStr(today.toISOString().split('T')[0]);
+    setSelectedDateStr(toLocalISODate(today));
   };
 
   // Generate 42 calendar grid cells (prev month overflow + current month + next month overflow)
@@ -77,7 +78,7 @@ export default function CalendarPage() {
       cells.push({
         date: prevDate,
         isCurrentMonth: false,
-        dateStr: prevDate.toISOString().split('T')[0]
+        dateStr: toLocalISODate(prevDate)
       });
     }
 
@@ -87,7 +88,7 @@ export default function CalendarPage() {
       cells.push({
         date: currDate,
         isCurrentMonth: true,
-        dateStr: currDate.toISOString().split('T')[0]
+        dateStr: toLocalISODate(currDate)
       });
     }
 
@@ -98,7 +99,7 @@ export default function CalendarPage() {
       cells.push({
         date: nextDate,
         isCurrentMonth: false,
-        dateStr: nextDate.toISOString().split('T')[0]
+        dateStr: toLocalISODate(nextDate)
       });
     }
 
@@ -217,7 +218,7 @@ export default function CalendarPage() {
               {calendarCells.map((cell, idx) => {
                 const dayLogs = entriesByDate[cell.dateStr] || [];
                 const totalHours = dayLogs.reduce((sum, e) => sum + e.hours_completed, 0);
-                const isToday = cell.dateStr === new Date().toISOString().split('T')[0];
+                const isToday = cell.dateStr === toLocalISODate(new Date());
                 const isSelected = selectedDateStr === cell.dateStr;
 
                 return (
@@ -271,7 +272,7 @@ export default function CalendarPage() {
                   <div className="flex items-center justify-between pb-4 border-b border-white/5 mb-4">
                     <div>
                       <h3 className="text-md font-bold text-white">
-                        {new Date(selectedDateStr + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                        {parseLocalISODate(selectedDateStr).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                       </h3>
                       <span className="text-[10px] text-slate-500 font-mono">Date study logs</span>
                     </div>

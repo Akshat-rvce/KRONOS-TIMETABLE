@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -50,7 +51,7 @@ export default function AnalyticsPage() {
     for (let i = 29; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = toLocalISODate(d);
       
       const dayLogs = entries.filter(e => e.date === dateStr);
       let target = 0;

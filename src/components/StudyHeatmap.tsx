@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 "use client";
 
 import React, { useState, useMemo } from 'react';
@@ -180,7 +181,7 @@ export const StudyHeatmap: React.FC<StudyHeatmapProps> = ({ entries, subjects })
             {weeks.map((week, wIdx) => (
               <div key={wIdx} className="grid grid-rows-7 gap-1">
                 {week.map((date, dIdx) => {
-                  const dateStr = date.toISOString().split('T')[0];
+                  const dateStr = toLocalISODate(date);
                   const { totalHours, details } = getCellStats(dateStr);
                   const cellColorStyle = getCellColor(totalHours, activeSubject?.color);
                   const isCustomBg = cellColorStyle.startsWith('rgba') || cellColorStyle.startsWith('#');

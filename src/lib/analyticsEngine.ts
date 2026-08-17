@@ -1,3 +1,4 @@
+import { toLocalISODate } from '@/lib/dateUtils';
 import { DailyEntry, Subject } from './types';
 
 // Define the 8 time blocks of 3 hours each
@@ -180,7 +181,7 @@ export function computeAdvancedAnalytics(entries: DailyEntry[], subjects: Subjec
   const getSubjectVariance = (days: number) => {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
-    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    const cutoffStr = toLocalISODate(cutoffDate);
 
     const filtered = entries.filter(e => e.date >= cutoffStr);
     
@@ -207,7 +208,7 @@ export function computeAdvancedAnalytics(entries: DailyEntry[], subjects: Subjec
   const calculateConsistencyScore = (days: number) => {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
-    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    const cutoffStr = toLocalISODate(cutoffDate);
 
     const filtered = entries.filter(e => e.date >= cutoffStr);
     
@@ -384,7 +385,7 @@ export function computeAdvancedAnalytics(entries: DailyEntry[], subjects: Subjec
   const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1;
   const monday = new Date(today);
   monday.setDate(today.getDate() - distanceToMonday);
-  const mondayStr = monday.toISOString().split('T')[0];
+  const mondayStr = toLocalISODate(monday);
 
   const thisWeeksEntries = entries.filter(e => e.date >= mondayStr);
   const elapsedDays = Math.max(1, distanceToMonday + 1); // 1 to 7
