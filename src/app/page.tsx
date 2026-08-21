@@ -36,26 +36,85 @@ function getTodayQuote() {
   return QUOTES[dayOfYear % QUOTES.length];
 }
 
-// ─── Pomodoro Timer Widget ────────────────────────────────────
-const POMO_WORK = 25 * 60;
-const POMO_BREAK = 5 * 60;
+// ─── Focus Timer Widget ────────────────────────────────────
+function PomodoroWidget({ subjects, onLogSuccess }: { subjects: Subject[], onLogSuccess?: () => void }) {
+  const [customHours, setCustomHours] = useState<number>(0);
+  const [customMinutes, setCustomMinutes] = useState<number>(25);
+  const [subjectId, setSubjectId] = useState<number | ''>('');
+  const [showSettings, setShowSettings] = useState(false);
 
-function PomodoroWidget() {
-  const [timeLeft, setTimeLeft] = useState(POMO_WORK);
+  const totalFocusSeconds = useMemo(() => {
+    const t = (customHours * 60 + customMinutes) * 60;
+    return t > 0 ? t : 25 * 60;
+  }, [customHours, customMinutes]);
+
+  const [timeLeft, setTimeLeft] = useState(totalFocusSeconds);
   const [running, setRunning] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
   const [cycles, setCycles] = useState(0);
+  const [sessionStart, setSessionStart] = useState<Date | null>(null);
+
   const ivRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (!running && !isBreak) {
+      setTimeLeft(totalFocusSeconds);
+    }
+  }, [totalFocusSeconds, running, isBreak]);
+
+  const logSession = async (startTime: Date, endTime: Date) => {
+    if (!subjectId) return;
+    
+    const durationMins = (endTime.getTime() - startTime.getTime()) / 60000;
+    if (durationMins < 1) return; // Don't log less than 1 min
+
+    const hours = Number((durationMins / 60).toFixed(2));
+    const sTime = `${String(startTime.getHours()).padStart(2, '0')}:${String(startTime.getMinutes()).padStart(2, '0')}`;
+    const eTime = `${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`;
+    const dateStr = toLocalISODate(startTime);
+
+    try {
+      await fetch('/api/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: dateStr,
+          subject_id: Number(subjectId),
+          target_hours: hours,
+          hours_completed: hours,
+          start_time: sTime,
+          end_time: eTime,
+          status: 'completed',
+          custom_fields: {}
+        })
+      });
+      if (onLogSuccess) onLogSuccess();
+    } catch (err) {
+      console.error('Failed to auto-log session', err);
+    }
+  };
+
+  useEffect(() => {
     if (running) {
+      if (!sessionStart && !isBreak) setSessionStart(new Date());
+
       ivRef.current = setInterval(() => {
         setTimeLeft(t => {
           if (t <= 1) {
             if (ivRef.current) clearInterval(ivRef.current);
             setRunning(false);
-            if (!isBreak) { setCycles(c => c + 1); setIsBreak(true); setTimeLeft(POMO_BREAK); }
-            else { setIsBreak(false); setTimeLeft(POMO_WORK); }
+            if (!isBreak) {
+              setCycles(c => c + 1);
+              setIsBreak(true);
+              setTimeLeft(5 * 60); // 5 min break
+              if (sessionStart) {
+                logSession(sessionStart, new Date());
+                setSessionStart(null);
+              }
+            } else {
+              setIsBreak(false);
+              setTimeLeft(totalFocusSeconds);
+            }
             return 0;
           }
           return t - 1;
@@ -64,28 +123,72 @@ function PomodoroWidget() {
     } else {
       if (ivRef.current) clearInterval(ivRef.current);
     }
-    return () => {
-      if (ivRef.current) clearInterval(ivRef.current);
-    };
-  }, [running, isBreak]);
+    return () => { if (ivRef.current) clearInterval(ivRef.current); };
+  }, [running, isBreak, totalFocusSeconds, sessionStart, subjectId]);
 
-  const reset = () => { setRunning(false); setTimeLeft(isBreak ? POMO_BREAK : POMO_WORK); };
+  const reset = () => {
+    setRunning(false);
+    if (!isBreak && sessionStart) {
+      logSession(sessionStart, new Date());
+    }
+    setSessionStart(null);
+    setTimeLeft(isBreak ? 5 * 60 : totalFocusSeconds);
+  };
+
   const m = String(Math.floor(timeLeft / 60)).padStart(2, '0');
   const s = String(timeLeft % 60).padStart(2, '0');
-  const total = isBreak ? POMO_BREAK : POMO_WORK;
+  const total = isBreak ? 5 * 60 : totalFocusSeconds;
   const pct = ((total - timeLeft) / total) * 100;
   const color = isBreak ? '#10b981' : '#f97316';
   const circ = 2 * Math.PI * 38;
 
   return (
-    <div className="glass-card card-3d p-5 border border-white/5 flex flex-col items-center gap-3"
+    <div className="glass-card card-3d p-5 border border-white/5 flex flex-col items-center gap-4 relative"
       style={{ boxShadow: `0 8px 30px ${color}20` }}>
+      
+      {/* Header */}
       <div className="flex items-center justify-between w-full">
         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
           {isBreak ? '☕ Break' : '⚡ Focus'}
         </span>
-        <span className="text-[10px] text-slate-500">{cycles} cycles</span>
+        <button onClick={() => setShowSettings(!showSettings)} className="p-1 rounded bg-white/5 hover:bg-white/10 text-slate-400 transition-colors">
+          <Edit2 className="w-3 h-3" />
+        </button>
       </div>
+
+      {/* Settings Panel */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="w-full overflow-hidden"
+          >
+            <div className="flex flex-col gap-2 p-3 bg-white/5 rounded-xl border border-white/10 text-xs">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-[10px] text-slate-400 block mb-1">Hours</label>
+                  <input type="number" min="0" value={customHours} onChange={e => setCustomHours(Number(e.target.value))} className="w-full bg-black/50 border border-white/10 rounded p-1 text-white text-center" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-slate-400 block mb-1">Minutes</label>
+                  <input type="number" min="0" max="59" value={customMinutes} onChange={e => setCustomMinutes(Number(e.target.value))} className="w-full bg-black/50 border border-white/10 rounded p-1 text-white text-center" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1">Subject to Auto-Log</label>
+                <select value={subjectId} onChange={e => setSubjectId(Number(e.target.value) || '')} className="w-full bg-black/50 border border-white/10 rounded p-1 text-white appearance-none">
+                  <option value="">-- None --</option>
+                  {(subjects || []).filter(sub => sub.is_archived === 0).map(sub => (
+                    <option key={sub.id} value={sub.id}>{sub.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* SVG ring timer */}
       <div className="relative flex items-center justify-center">
@@ -104,25 +207,27 @@ function PomodoroWidget() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 w-full justify-center">
-        <button
-          onClick={() => setRunning(v => !v)}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-white text-xs font-bold transition-all"
-          style={{ background: color, boxShadow: running ? `0 0 16px ${color}60` : undefined }}
-        >
-          {running ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-          {running ? 'Pause' : 'Start'}
-        </button>
-        <button onClick={reset} className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-colors">
-          <RotateCcw className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => { setIsBreak(v => !v); setRunning(false); setTimeLeft(!isBreak ? POMO_BREAK : POMO_WORK); }}
-          className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-colors"
-          title={isBreak ? 'Switch to Work' : 'Switch to Break'}
-        >
-          <Coffee className="w-3.5 h-3.5" />
-        </button>
+      <div className="flex items-center justify-between w-full">
+        <span className="text-[10px] text-slate-500">{cycles} cycles</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setRunning(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-bold transition-all"
+            style={{ background: color, boxShadow: running ? `0 0 16px ${color}60` : undefined }}
+          >
+            {running ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          </button>
+          <button onClick={reset} className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-colors" title="Reset & Auto-Log">
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => { setIsBreak(v => !v); setRunning(false); setTimeLeft(!isBreak ? 5 * 60 : totalFocusSeconds); }}
+            className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:text-white transition-colors"
+            title={isBreak ? 'Switch to Work' : 'Switch to Break'}
+          >
+            <Coffee className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -367,7 +472,7 @@ export default function Dashboard() {
 
           {/* ── Pomodoro + Today Checklist ────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <PomodoroWidget />
+            <PomodoroWidget subjects={subjects} onLogSuccess={fetchData} />
             <div className="lg:col-span-2">
               <TodayChecklist entries={entries} subjects={subjects} />
             </div>

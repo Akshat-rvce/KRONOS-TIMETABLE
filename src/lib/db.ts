@@ -28,13 +28,20 @@ function getTursoClient() {
 
 function getLocalDb() {
   if (!localDb) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Database = require('better-sqlite3');
-    const dbPath = path.resolve(process.cwd(), 'timetable.db');
-    localDb = new Database(dbPath);
-    localDb.pragma('foreign_keys = ON');
-    localDb.pragma('journal_mode = WAL');
-    console.log('[KRONOS] Using local SQLite:', dbPath);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Database = require('better-sqlite3');
+      const dbPath = path.resolve(process.cwd(), 'timetable.db');
+      localDb = new Database(dbPath);
+      localDb.pragma('foreign_keys = ON');
+      localDb.pragma('journal_mode = WAL');
+      console.log('[KRONOS] Using local SQLite:', dbPath);
+    } catch (err) {
+      throw new Error(
+        '[KRONOS] better-sqlite3 is not available in this environment. ' +
+        'Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables to use Turso cloud SQLite instead.'
+      );
+    }
   }
   return localDb;
 }
