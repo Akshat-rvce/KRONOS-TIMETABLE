@@ -6,7 +6,6 @@ export interface RunResult {
 }
 
 let tursoClient: any = null;
-let localDb: any = null;
 let initPromise: Promise<void> | null = null;
 
 function isTursoConfigured(): boolean {
@@ -15,6 +14,9 @@ function isTursoConfigured(): boolean {
 
 function getTursoClient() {
   if (!tursoClient) {
+    if (!isTursoConfigured()) {
+      throw new Error('[KRONOS] TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set');
+    }
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createClient } = require('@libsql/client/web');
     tursoClient = createClient({
@@ -26,42 +28,18 @@ function getTursoClient() {
   return tursoClient;
 }
 
-function getLocalDb() {
-  if (!localDb) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Database = require('better-sqlite3');
-      const dbPath = path.resolve(process.cwd(), 'timetable.db');
-      localDb = new Database(dbPath);
-      localDb.pragma('foreign_keys = ON');
-      localDb.pragma('journal_mode = WAL');
-      console.log('[KRONOS] Using local SQLite:', dbPath);
-    } catch (err) {
-      throw new Error(
-        '[KRONOS] better-sqlite3 is not available in this environment. ' +
-        'Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables to use Turso cloud SQLite instead.'
-      );
-    }
-  }
-  return localDb;
-}
-
 /**
  * Execute raw SQL script
  */
 export async function exec(sql: string): Promise<void> {
   await ensureDb();
-  if (isTursoConfigured()) {
-    const client = getTursoClient();
-    const statements = sql
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-    for (const stmt of statements) {
-      await client.execute(stmt);
-    }
-  } else {
-    getLocalDb().exec(sql);
+  const client = getTursoClient();
+  const statements = sql
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  for (const stmt of statements) {
+    await client.execute(stmt);
   }
 }
 
@@ -70,20 +48,15 @@ export async function exec(sql: string): Promise<void> {
  */
 export async function queryAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   await ensureDb();
-  if (isTursoConfigured()) {
-    const client = getTursoClient();
-    const res = await client.execute({ sql, args: params });
-    return (res.rows || []).map((row: any) => {
-      const obj: any = {};
-      for (const col of res.columns) {
-        obj[col] = row[col];
-      }
-      return obj as T;
-    });
-  } else {
-    const stmt = getLocalDb().prepare(sql);
-    return stmt.all(...params) as T[];
-  }
+  const client = getTursoClient();
+  const res = await client.execute({ sql, args: params });
+  return (res.rows || []).map((row: any) => {
+    const obj: any = {};
+    for (const col of res.columns) {
+      obj[col] = row[col];
+    }
+    return obj as T;
+  });
 }
 
 /**
@@ -91,14 +64,8 @@ export async function queryAll<T = any>(sql: string, params: any[] = []): Promis
  */
 export async function queryOne<T = any>(sql: string, params: any[] = []): Promise<T | null> {
   await ensureDb();
-  if (isTursoConfigured()) {
-    const rows = await queryAll<T>(sql, params);
-    return rows.length > 0 ? rows[0] : null;
-  } else {
-    const stmt = getLocalDb().prepare(sql);
-    const res = stmt.get(...params);
-    return res !== undefined ? (res as T) : null;
-  }
+  const rows = await queryAll<T>(sql, params);
+  return rows.length > 0 ? rows[0] : null;
 }
 
 /**
@@ -106,21 +73,12 @@ export async function queryOne<T = any>(sql: string, params: any[] = []): Promis
  */
 export async function run(sql: string, params: any[] = []): Promise<RunResult> {
   await ensureDb();
-  if (isTursoConfigured()) {
-    const client = getTursoClient();
-    const res = await client.execute({ sql, args: params });
-    return {
-      lastInsertRowid: Number(res.lastInsertRowid ?? 0),
-      changes: res.rowsAffected ?? 0,
-    };
-  } else {
-    const stmt = getLocalDb().prepare(sql);
-    const res = stmt.run(...params);
-    return {
-      lastInsertRowid: Number(res.lastInsertRowid),
-      changes: res.changes,
-    };
-  }
+  const client = getTursoClient();
+  const res = await client.execute({ sql, args: params });
+  return {
+    lastInsertRowid: Number(res.lastInsertRowid ?? 0),
+    changes: res.rowsAffected ?? 0,
+  };
 }
 
 /**
@@ -136,11 +94,7 @@ export async function seedDefaultSubjects(userId: number): Promise<void> {
   ];
   for (const sub of defaultSubjects) {
     const sql = 'INSERT INTO subjects (name, color, daily_target_hours, user_id) VALUES (?, ?, ?, ?)';
-    if (isTursoConfigured()) {
-      await getTursoClient().execute({ sql, args: [sub.name, sub.color, sub.daily_target_hours, userId] });
-    } else {
-      getLocalDb().prepare(sql).run(sub.name, sub.color, sub.daily_target_hours, userId);
-    }
+    await getTursoClient().execute({ sql, args: [sub.name, sub.color, sub.daily_target_hours, userId] });
   }
   console.log(`[KRONOS] Seeded default subjects for user ${userId}`);
 }
@@ -212,11 +166,7 @@ async function performInit(): Promise<void> {
   ];
 
   for (const t of tables) {
-    if (isTursoConfigured()) {
-      await getTursoClient().execute(t);
-    } else {
-      getLocalDb().exec(t);
-    }
+    await getTursoClient().execute(t);
   }
 
   // Column migrations (multi-user upgrades)
@@ -230,11 +180,7 @@ async function performInit(): Promise<void> {
   ];
   for (const sql of migrations) {
     try {
-      if (isTursoConfigured()) {
-        await getTursoClient().execute(sql);
-      } else {
-        getLocalDb().exec(sql);
-      }
+      await getTursoClient().execute(sql);
     } catch {
       // Column already exists
     }
