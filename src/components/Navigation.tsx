@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LayoutDashboard, Calendar, BarChart3, BookOpen, Zap, Clock, LogOut, User, LogIn } from 'lucide-react';
+import { LayoutDashboard, Calendar, BarChart3, BookOpen, Zap, Clock, LogOut, User, LogIn, ListTodo } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 const NAV_ITEMS = [
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: 'Calendar',  path: '/calendar',  icon: Calendar,  accent: '#0d9488' },
   { label: 'Analytics', path: '/analytics', icon: BarChart3,  accent: '#f97316' },
   { label: 'Subjects',  path: '/subjects',  icon: BookOpen,   accent: '#ec4899' },
+  { label: 'To-Do',     path: '/todo',      icon: ListTodo,   accent: '#10b981' },
 ];
 
 export const Navigation = () => {
