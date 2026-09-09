@@ -121,6 +121,22 @@ export const StudyHeatmap: React.FC<StudyHeatmapProps> = ({ entries, subjects })
     return { activeDays, maxStreak, peakDate: peakEntry?.[0] ?? null, peakHours: peakEntry?.[1] ?? 0 };
   }, [entries]);
 
+  // Hovered / Clicked cell for smart floating tooltip
+  const [activeCell, setActiveCell] = useState<{
+    date: Date;
+    totalHours: number;
+    details: { name: string; hours: number; color: string; target: number }[];
+    isToday: boolean;
+    rect: DOMRect;
+  } | null>(null);
+
+  // Close tooltip on scroll to prevent detached popups
+  React.useEffect(() => {
+    const handleScroll = () => setActiveCell(null);
+    window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
+    return () => window.removeEventListener('scroll', handleScroll, { capture: true });
+  }, []);
+
   return (
     <div className="glass-panel p-6 border border-white/[0.05] space-y-5"
       style={{ boxShadow: '0 8px 40px rgba(147,51,234,0.10)' }}>
@@ -213,77 +229,31 @@ export const StudyHeatmap: React.FC<StudyHeatmapProps> = ({ entries, subjects })
                     return (
                       <div
                         key={dIdx}
-                        className="relative group"
+                        className="relative"
                         style={{ width: 13, height: 13 }}
+                        onMouseEnter={(e) => {
+                          if (isFuture) return;
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setActiveCell({ date, totalHours, details, isToday, rect });
+                        }}
+                        onMouseLeave={() => setActiveCell(null)}
+                        onClick={(e) => {
+                          if (isFuture) return;
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setActiveCell({ date, totalHours, details, isToday, rect });
+                        }}
                       >
                         <div
-                          className="w-full h-full rounded-[3px] transition-all duration-150 cursor-pointer"
+                          className="w-full h-full rounded-[3px] transition-all duration-150 cursor-pointer hover:scale-125 hover:z-10 relative"
                           style={{
                             ...cellStyle,
                             backgroundColor: isFuture
                               ? 'rgba(255,255,255,0.02)'
                               : (totalHours === 0 ? 'rgba(255,255,255,0.05)' : cellStyle.backgroundColor),
-                            outline: isToday ? '2px solid rgba(255,255,255,0.5)' : undefined,
+                            outline: isToday ? '2px solid rgba(255,255,255,0.7)' : undefined,
                             outlineOffset: isToday ? '1px' : undefined,
                           }}
                         />
-
-                        {/* Tooltip */}
-                        {!isFuture && (
-                          <div
-                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 hidden group-hover:block z-50 pointer-events-none"
-                            style={{ width: 200 }}
-                          >
-                            <div className="text-[10px] leading-relaxed rounded-xl p-3"
-                              style={{
-                                background: 'rgba(7,6,16,0.97)',
-                                border: '1px solid rgba(147,51,234,0.28)',
-                                boxShadow: '0 12px 40px rgba(0,0,0,0.7), 0 0 0 0.5px rgba(147,51,234,0.1)',
-                              }}>
-                              {/* Date + total */}
-                              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-white/[0.07]">
-                                <span className="font-semibold text-white">
-                                  {date.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' })}
-                                  {isToday && <span className="ml-1.5 text-[8px] text-violet-400 font-bold uppercase tracking-wider">Today</span>}
-                                </span>
-                                <span className="font-bold font-mono" style={{ color: activeSubject?.color ?? '#9333ea' }}>
-                                  {totalHours.toFixed(1)}h
-                                </span>
-                              </div>
-
-                              {details.length === 0 ? (
-                                <div className="text-slate-500 text-center py-1">No study logged</div>
-                              ) : (
-                                <div className="space-y-1.5">
-                                  {details.map((d, idx) => (
-                                    <div key={idx}>
-                                      <div className="flex items-center justify-between mb-0.5">
-                                        <div className="flex items-center gap-1">
-                                          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: d.color }} />
-                                          <span className="text-slate-300 truncate" style={{ maxWidth: 120 }}>{d.name}</span>
-                                        </div>
-                                        <span className="font-semibold font-mono" style={{ color: d.color }}>{d.hours.toFixed(1)}h</span>
-                                      </div>
-                                      {d.target > 0 && (
-                                        <div className="h-0.5 rounded-full bg-white/[0.07] overflow-hidden">
-                                          <div className="h-full rounded-full transition-all"
-                                            style={{
-                                              width: `${Math.min(100, (d.hours / d.target) * 100)}%`,
-                                              backgroundColor: d.color,
-                                              opacity: 0.7,
-                                            }} />
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            {/* Caret */}
-                            <div className="w-2 h-2 rotate-45 mx-auto -mt-1"
-                              style={{ background: 'rgba(7,6,16,0.97)', borderRight: '1px solid rgba(147,51,234,0.28)', borderBottom: '1px solid rgba(147,51,234,0.28)' }} />
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -294,11 +264,127 @@ export const StudyHeatmap: React.FC<StudyHeatmapProps> = ({ entries, subjects })
         </div>
       </div>
 
+      {/* Floating smart tooltip */}
+      {activeCell && (() => {
+        const { date, totalHours, details, isToday, rect } = activeCell;
+        const tooltipWidth = 220;
+        
+        // If the cell is near the top of viewport or row 0/1/2 (rect.top < 180), pop downwards
+        const showBelow = rect.top < 180;
+        const cellCenterX = rect.left + rect.width / 2;
+        const cellY = showBelow ? rect.bottom + 8 : rect.top - 8;
+        
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+        const padding = 16;
+        const halfWidth = tooltipWidth / 2;
+        
+        const clampedLeft = Math.max(padding + halfWidth, Math.min(screenWidth - padding - halfWidth, cellCenterX));
+        const arrowOffset = Math.max(-halfWidth + 16, Math.min(halfWidth - 16, cellCenterX - clampedLeft));
+
+        return (
+          <div
+            className="fixed z-[9999] pointer-events-none transition-opacity duration-150 animate-in fade-in zoom-in-95"
+            style={{
+              left: clampedLeft,
+              top: cellY,
+              transform: `translate(-50%, ${showBelow ? '0%' : '-100%'})`,
+              width: tooltipWidth,
+            }}
+          >
+            {/* Top Arrow pointing UP to the cell */}
+            {showBelow && (
+              <div
+                className="w-2.5 h-2.5 rotate-45 absolute -top-1"
+                style={{
+                  left: `calc(50% + ${arrowOffset}px)`,
+                  transform: 'translateX(-50%) rotate(45deg)',
+                  background: 'rgba(10, 8, 22, 0.98)',
+                  borderLeft: '1px solid rgba(147, 51, 234, 0.45)',
+                  borderTop: '1px solid rgba(147, 51, 234, 0.45)',
+                }}
+              />
+            )}
+
+            <div
+              className="text-[11px] leading-relaxed rounded-xl p-3 border backdrop-blur-2xl"
+              style={{
+                background: 'rgba(10, 8, 22, 0.98)',
+                borderColor: 'rgba(147, 51, 234, 0.35)',
+                boxShadow: '0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(147, 51, 234, 0.15)',
+              }}
+            >
+              {/* Date + total */}
+              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-white/[0.08]">
+                <span className="font-semibold text-white flex items-center gap-1.5">
+                  {date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                  {isToday && (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] bg-violet-500/25 text-violet-300 font-bold uppercase tracking-wider border border-violet-500/40">
+                      Today
+                    </span>
+                  )}
+                </span>
+                <span className="font-bold font-mono text-xs" style={{ color: activeSubject?.color ?? '#c084fc' }}>
+                  {totalHours.toFixed(1)}h
+                </span>
+              </div>
+
+              {details.length === 0 ? (
+                <div className="text-slate-500 text-center py-1.5 italic text-[10px]">No study logged</div>
+              ) : (
+                <div className="space-y-2">
+                  {details.map((d, idx) => (
+                    <div key={idx}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                          <span className="text-slate-200 truncate font-medium" style={{ maxWidth: 130 }}>
+                            {d.name}
+                          </span>
+                        </div>
+                        <span className="font-semibold font-mono text-[10px] shrink-0" style={{ color: d.color }}>
+                          {d.hours.toFixed(1)}h
+                        </span>
+                      </div>
+                      {d.target > 0 && (
+                        <div className="h-1 rounded-full bg-white/[0.08] overflow-hidden mt-0.5">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.min(100, (d.hours / d.target) * 100)}%`,
+                              backgroundColor: d.color,
+                              boxShadow: `0 0 6px ${d.color}80`,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Arrow pointing DOWN to the cell */}
+            {!showBelow && (
+              <div
+                className="w-2.5 h-2.5 rotate-45 absolute -bottom-1"
+                style={{
+                  left: `calc(50% + ${arrowOffset}px)`,
+                  transform: 'translateX(-50%) rotate(45deg)',
+                  background: 'rgba(10, 8, 22, 0.98)',
+                  borderRight: '1px solid rgba(147, 51, 234, 0.45)',
+                  borderBottom: '1px solid rgba(147, 51, 234, 0.45)',
+                }}
+              />
+            )}
+          </div>
+        );
+      })()}
+
       {/* Footer legend */}
       <div className="flex items-center justify-between pt-3 border-t border-white/[0.05] text-[11px] text-slate-500">
         <span className="flex items-center gap-1.5">
           <HelpCircle className="w-3.5 h-3.5" />
-          Hover cells to inspect sessions · White ring = today
+          Hover/click cells to inspect sessions · White ring = today
         </span>
         <div className="flex items-center gap-1.5 select-none">
           <span>Less</span>

@@ -15,6 +15,22 @@ interface AnalyticsMatrixProps {
 }
 
 export const AnalyticsMatrix: React.FC<AnalyticsMatrixProps> = ({ matrix }) => {
+  const [activeCell, setActiveCell] = React.useState<{
+    dayName: string;
+    blockName: string;
+    blockLabel: string;
+    hours: number;
+    focus: number;
+    rect: DOMRect;
+  } | null>(null);
+
+  // Close tooltip on scroll
+  React.useEffect(() => {
+    const handleScroll = () => setActiveCell(null);
+    window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
+    return () => window.removeEventListener('scroll', handleScroll, { capture: true });
+  }, []);
+
   const getCellColor = (hours: number) => {
     if (hours === 0) return 'bg-white/[0.02] border-white/[0.04] text-slate-700 hover:bg-white/[0.06]';
     if (hours <= 1.0) return 'bg-orange-500/15 border-orange-500/25 text-orange-300';
@@ -78,7 +94,30 @@ export const AnalyticsMatrix: React.FC<AnalyticsMatrixProps> = ({ matrix }) => {
                   return (
                     <div
                       key={blockIdx}
-                      className={`h-14 rounded-xl flex flex-col items-center justify-center relative group cursor-pointer border transition-all duration-200 ${cellColor} ${cellGlow} hover:scale-105 hover:border-orange-400/60`}
+                      className={`h-14 rounded-xl flex flex-col items-center justify-center relative cursor-pointer border transition-all duration-200 ${cellColor} ${cellGlow} hover:scale-105 hover:border-orange-400/60 hover:z-10`}
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setActiveCell({
+                          dayName,
+                          blockName: TIME_BLOCKS[blockIdx].name,
+                          blockLabel: TIME_BLOCKS[blockIdx].label,
+                          hours,
+                          focus,
+                          rect
+                        });
+                      }}
+                      onMouseLeave={() => setActiveCell(null)}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setActiveCell({
+                          dayName,
+                          blockName: TIME_BLOCKS[blockIdx].name,
+                          blockLabel: TIME_BLOCKS[blockIdx].label,
+                          hours,
+                          focus,
+                          rect
+                        });
+                      }}
                     >
                       {hours > 0 ? (
                         <>
@@ -90,44 +129,6 @@ export const AnalyticsMatrix: React.FC<AnalyticsMatrixProps> = ({ matrix }) => {
                       ) : (
                         <span className="text-[9px] text-slate-700 font-bold select-none">-</span>
                       )}
-
-                      {/* Floating Matrix Cell Tooltip */}
-                      <div
-                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 hidden group-hover:block z-50 text-[10px] leading-relaxed text-left p-3 rounded-xl border shadow-2xl"
-                        style={{
-                          background: 'rgba(9,9,15,0.96)',
-                          borderColor: 'rgba(249,115,22,0.3)',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.7)'
-                        }}
-                      >
-                        <div className="font-bold text-white mb-1.5 pb-1 border-b border-white/10 flex items-center justify-between">
-                          <span>{dayName}</span>
-                          <span className="text-orange-400 font-mono text-[9px]">{TIME_BLOCKS[blockIdx].name}</span>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Total studied:</span>
-                            <span className="text-orange-300 font-bold font-mono">{hours.toFixed(1)} hrs</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Avg focus rating:</span>
-                            <span className="text-amber-400 font-bold font-mono">{focus > 0 ? `${focus} / 5` : 'N/A'}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Time window:</span>
-                            <span className="text-slate-300 font-mono">{TIME_BLOCKS[blockIdx].label}</span>
-                          </div>
-                        </div>
-                        {/* tiny triangle caret */}
-                        <div
-                          className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 -mt-1"
-                          style={{
-                            background: 'rgba(9,9,15,0.96)',
-                            borderRight: '1px solid rgba(249,115,22,0.3)',
-                            borderBottom: '1px solid rgba(249,115,22,0.3)'
-                          }}
-                        />
-                      </div>
                     </div>
                   );
                 })}
@@ -137,9 +138,93 @@ export const AnalyticsMatrix: React.FC<AnalyticsMatrixProps> = ({ matrix }) => {
         </div>
       </div>
 
+      {/* Floating Smart Tooltip */}
+      {activeCell && (() => {
+        const { dayName, blockName, blockLabel, hours, focus, rect } = activeCell;
+        const tooltipWidth = 210;
+        const showBelow = rect.top < 180;
+        const cellCenterX = rect.left + rect.width / 2;
+        const cellY = showBelow ? rect.bottom + 8 : rect.top - 8;
+
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+        const padding = 16;
+        const halfWidth = tooltipWidth / 2;
+
+        const clampedLeft = Math.max(padding + halfWidth, Math.min(screenWidth - padding - halfWidth, cellCenterX));
+        const arrowOffset = Math.max(-halfWidth + 16, Math.min(halfWidth - 16, cellCenterX - clampedLeft));
+
+        return (
+          <div
+            className="fixed z-[9999] pointer-events-none transition-opacity duration-150 animate-in fade-in zoom-in-95"
+            style={{
+              left: clampedLeft,
+              top: cellY,
+              transform: `translate(-50%, ${showBelow ? '0%' : '-100%'})`,
+              width: tooltipWidth,
+            }}
+          >
+            {/* Top Arrow if showing below */}
+            {showBelow && (
+              <div
+                className="w-2.5 h-2.5 rotate-45 absolute -top-1"
+                style={{
+                  left: `calc(50% + ${arrowOffset}px)`,
+                  transform: 'translateX(-50%) rotate(45deg)',
+                  background: 'rgba(9,9,15,0.98)',
+                  borderLeft: '1px solid rgba(249,115,22,0.4)',
+                  borderTop: '1px solid rgba(249,115,22,0.4)',
+                }}
+              />
+            )}
+
+            <div
+              className="text-[11px] leading-relaxed text-left p-3 rounded-xl border shadow-2xl backdrop-blur-2xl"
+              style={{
+                background: 'rgba(9,9,15,0.98)',
+                borderColor: 'rgba(249,115,22,0.35)',
+                boxShadow: '0 16px 40px rgba(0,0,0,0.8), 0 0 20px rgba(249,115,22,0.15)'
+              }}
+            >
+              <div className="font-bold text-white mb-2 pb-1.5 border-b border-white/10 flex items-center justify-between">
+                <span>{dayName}</span>
+                <span className="text-orange-400 font-mono text-[10px]">{blockName}</span>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Total studied:</span>
+                  <span className="text-orange-300 font-bold font-mono">{hours.toFixed(1)} hrs</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Avg focus rating:</span>
+                  <span className="text-amber-400 font-bold font-mono">{focus > 0 ? `★ ${focus} / 5` : 'N/A'}</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-slate-400">Time window:</span>
+                  <span className="text-slate-300 font-mono">{blockLabel}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Arrow if showing above */}
+            {!showBelow && (
+              <div
+                className="w-2.5 h-2.5 rotate-45 absolute -bottom-1"
+                style={{
+                  left: `calc(50% + ${arrowOffset}px)`,
+                  transform: 'translateX(-50%) rotate(45deg)',
+                  background: 'rgba(9,9,15,0.98)',
+                  borderRight: '1px solid rgba(249,115,22,0.4)',
+                  borderBottom: '1px solid rgba(249,115,22,0.4)',
+                }}
+              />
+            )}
+          </div>
+        );
+      })()}
+
       {/* Heatmap Legend */}
       <div className="flex items-center justify-between border-t border-white/[0.05] pt-4 text-xs text-slate-400">
-        <span className="text-slate-500">Hover blocks for focus and time breakdown</span>
+        <span className="text-slate-500">Hover/click blocks for focus and time breakdown</span>
         <div className="flex items-center gap-1.5 select-none text-[11px]">
           <span>0h</span>
           <div className="w-3.5 h-3.5 rounded-md bg-white/[0.02] border border-white/[0.05]" />
