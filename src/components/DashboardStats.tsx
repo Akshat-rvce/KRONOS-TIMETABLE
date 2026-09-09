@@ -2,10 +2,10 @@
 import { toLocalISODate } from '@/lib/dateUtils';
 
 import React, { useEffect, useState } from 'react';
-import { Flame, Clock, TrendingUp, Award, Star } from 'lucide-react';
-import { DailyEntry } from '@/lib/types';
+import { Flame, Clock, TrendingUp, Star } from 'lucide-react';
+import { DailyEntry, Subject } from '@/lib/types';
 
-interface Props { entries: DailyEntry[]; }
+interface Props { entries: DailyEntry[]; subjects: Subject[]; }
 
 // SVG ring progress component
 const RingProgress = ({
@@ -42,26 +42,62 @@ const RingProgress = ({
   );
 };
 
-function calculateStats(entries: DailyEntry[]) {
-  const active = entries.filter(e => e.status !== 'skipped');
-  const totalHours  = active.reduce((s, e) => s + e.hours_completed, 0);
-  const totalTarget = active.reduce((s, e) => s + e.target_hours, 0);
-  const targetPct   = totalTarget > 0 ? Math.min(100, Math.round((totalHours / totalTarget) * 100)) : 0;
+/**
+ * Compute dashboard stats.
+ *
+ * FIX (was: 351% weekly progress bug):
+ * Targets are derived from the subjects table — NOT from target_hours stored
+ * on daily_entries rows. Entry rows only exist when a session is logged, so
+ * summing their target_hours omits every unlogged subject, producing a tiny,
+ * wrong denominator (e.g. 5.5h instead of 49h → 351%).
+ *
+ * Correct formula:
+ *   todayTarget = Σ subject.daily_target_hours          (all active subjects)
+ *   weekTarget  = Σ subject.daily_target_hours × min(7, study_days_per_week)
+ *
+ * Logged hours still come from daily_entries (numerator only).
+ * Unlogged subjects contribute 0 to the numerator, full target to denominator.
+ */
+function calculateStats(entries: DailyEntry[], subjects: Subject[]) {
+  const activeSubjects = subjects.filter(s => s.is_archived === 0);
 
-  // Today
-  const todayStr    = toLocalISODate(new Date());
-  const todayHours  = active.filter(e => e.date === todayStr).reduce((s, e) => s + e.hours_completed, 0);
-  const todayTarget = active.filter(e => e.date === todayStr).reduce((s, e) => s + e.target_hours, 0);
+  // ── Targets derived from subjects (denominator) ──────────────────────────
+  // Today: sum of every active subject's daily target
+  const todayTarget = activeSubjects.reduce(
+    (s, sub) => s + (sub.daily_target_hours ?? 0), 0
+  );
 
-  // Weekly (last 7 days)
+  // Week (trailing 7 days): each subject contributes daily_target × days/week
+  // capped at 7 so we never over-count beyond 7 days.
+  const weekTarget = activeSubjects.reduce((s, sub) => {
+    const daysPerWeek = Math.min(7, sub.study_days_per_week ?? 7);
+    return s + (sub.daily_target_hours ?? 0) * daysPerWeek;
+  }, 0);
+
+  // ── Actual logged hours from entries (numerator) ─────────────────────────
+  const todayStr = toLocalISODate(new Date());
+  const active   = entries.filter(e => e.status !== 'skipped');
+
+  const todayHours = active
+    .filter(e => e.date === todayStr)
+    .reduce((s, e) => s + e.hours_completed, 0);
+
   const weekDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - i);
     return toLocalISODate(d);
   });
-  const weekHours  = active.filter(e => weekDates.includes(e.date)).reduce((s, e) => s + e.hours_completed, 0);
-  const weekTarget = active.filter(e => weekDates.includes(e.date)).reduce((s, e) => s + e.target_hours, 0);
+  const weekHours = active
+    .filter(e => weekDates.includes(e.date))
+    .reduce((s, e) => s + e.hours_completed, 0);
 
-  // Streak
+  // ── All-time totals ───────────────────────────────────────────────────────
+  const totalHours  = active.reduce((s, e) => s + e.hours_completed, 0);
+  const totalTarget = active.reduce((s, e) => s + e.target_hours, 0);
+  const targetPct   = totalTarget > 0
+    ? Math.min(100, Math.round((totalHours / totalTarget) * 100))
+    : 0;
+
+  // ── Streak ───────────────────────────────────────────────────────────────
   const dailyStudy: Record<string, number> = {};
   for (const e of entries) {
     if (e.status !== 'skipped' && e.hours_completed > 0)
@@ -78,24 +114,33 @@ function calculateStats(entries: DailyEntry[]) {
     }
   }
 
-  // Focus avg
-  const focusE = active.filter(e => e.focus_rating);
+  // ── Avg focus ────────────────────────────────────────────────────────────
+  const focusE   = active.filter(e => e.focus_rating);
   const avgFocus = focusE.length > 0
-    ? (focusE.reduce((s, e) => s + (e.focus_rating || 0), 0) / focusE.length)
+    ? focusE.reduce((s, e) => s + (e.focus_rating || 0), 0) / focusE.length
     : 0;
 
-  return { totalHours: +totalHours.toFixed(1), targetPct, todayHours: +todayHours.toFixed(1), todayTarget, weekHours: +weekHours.toFixed(1), weekTarget, streak, avgFocus: +avgFocus.toFixed(1) };
+  return {
+    totalHours:  +totalHours.toFixed(1),
+    targetPct,
+    todayHours:  +todayHours.toFixed(1),
+    todayTarget: +todayTarget.toFixed(1),
+    weekHours:   +weekHours.toFixed(1),
+    weekTarget:  +weekTarget.toFixed(1),
+    streak,
+    avgFocus:    +avgFocus.toFixed(1),
+  };
 }
 
-export const DashboardStats: React.FC<Props> = ({ entries }) => {
-  const s = calculateStats(entries);
+export const DashboardStats: React.FC<Props> = ({ entries, subjects }) => {
+  const s = calculateStats(entries, subjects);
 
   const cards = [
     {
       label: "Today's Hours",
       value: s.todayHours,
       max: s.todayTarget || 8,
-      sub: `of ${s.todayTarget || '—'} target`,
+      sub: `of ${s.todayTarget ? s.todayTarget + 'h' : '—'} target`,
       display: `${s.todayHours}h`,
       color: '#9333ea',
       icon: Clock,
@@ -104,7 +149,7 @@ export const DashboardStats: React.FC<Props> = ({ entries }) => {
     {
       label: 'Weekly Progress',
       value: s.weekHours,
-      max: s.weekTarget || 40,
+      max: s.weekTarget || 49,
       sub: `${s.weekHours}h of ${s.weekTarget ? s.weekTarget + 'h' : '—'} goal`,
       display: `${Math.round(s.weekTarget > 0 ? (s.weekHours / s.weekTarget) * 100 : 0)}%`,
       color: '#f97316',
